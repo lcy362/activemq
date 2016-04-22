@@ -22,7 +22,7 @@
   <parent>
     <groupId>org.apache.activemq</groupId>
     <artifactId>activemq-parent</artifactId>
-    <version>5.13-SNAPSHOT</version>
+    <version>5.14.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>activemq-unit-tests</artifactId>
@@ -71,6 +71,10 @@
       <artifactId>activemq-partition</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.apache.activemq</groupId>
+      <artifactId>activemq-runtime-config</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.apache.geronimo.specs</groupId>
       <artifactId>geronimo-jms_1.1_spec</artifactId>
     </dependency>
@@ -87,6 +91,10 @@
       <groupId>org.fusesource.mqtt-client</groupId>
       <artifactId>mqtt-client</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.apache.activemq.tooling</groupId>
+      <artifactId>activemq-junit</artifactId>
+     </dependency>
 
     <!-- =============================== -->
     <!-- Optional Dependencies           -->
@@ -431,7 +439,7 @@
         <configuration>
           <forkCount>1</forkCount>
           <reuseForks>false</reuseForks>
-          <forkedProcessTimeoutInSeconds>600</forkedProcessTimeoutInSeconds>
+          <forkedProcessTimeoutInSeconds>1200</forkedProcessTimeoutInSeconds>
           <runOrder>alphabetical</runOrder>
           <excludes>
             <!-- temporarily exclude failing tests so that CI works; fix asap and reenable -->

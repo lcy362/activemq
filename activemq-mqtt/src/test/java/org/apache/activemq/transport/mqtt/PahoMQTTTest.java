@@ -18,6 +18,9 @@ package org.apache.activemq.transport.mqtt;
 
 
 import org.apache.activemq.ActiveMQConnection;
+import org.apache.activemq.broker.region.Destination;
+import org.apache.activemq.broker.region.RegionBroker;
+import org.apache.activemq.command.ActiveMQQueue;
 import org.apache.activemq.util.Wait;
 import org.eclipse.paho.client.mqttv3.*;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
@@ -40,6 +43,10 @@ public class PahoMQTTTest extends MQTTTestSupport {
 
     private static final Logger LOG = LoggerFactory.getLogger(PahoMQTTTest.class);
 
+    protected MessageConsumer createConsumer(Session s, String topic) throws Exception {
+        return s.createConsumer(s.createTopic(topic));
+    }
+
     @Test(timeout = 300000)
     public void testLotsOfClients() throws Exception {
 
@@ -49,7 +56,7 @@ public class PahoMQTTTest extends MQTTTestSupport {
         ActiveMQConnection activeMQConnection = (ActiveMQConnection) cf.createConnection();
         activeMQConnection.start();
         Session s = activeMQConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-        MessageConsumer consumer = s.createConsumer(s.createTopic("test"));
+        MessageConsumer consumer = createConsumer(s, "test");
 
         final AtomicInteger receiveCounter = new AtomicInteger();
         consumer.setMessageListener(new MessageListener() {
@@ -115,7 +122,7 @@ public class PahoMQTTTest extends MQTTTestSupport {
         ActiveMQConnection activeMQConnection = (ActiveMQConnection) cf.createConnection();
         activeMQConnection.start();
         Session s = activeMQConnection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-        MessageConsumer consumer = s.createConsumer(s.createTopic("test"));
+        MessageConsumer consumer = createConsumer(s, "test");
 
         MqttClient client = new MqttClient("tcp://localhost:" + getPort(), "clientid", new MemoryPersistence());
         client.connect();
@@ -125,15 +132,10 @@ public class PahoMQTTTest extends MQTTTestSupport {
         assertNotNull(msg);
 
         client.disconnect();
-        client.close();
     }
 
     @Test(timeout = 300000)
     public void testSubs() throws Exception {
-
-        stopBroker();
-        protocolConfig = "transport.subscriptionStrategy=mqtt-virtual-topic-subscriptions";
-        startBroker();
 
         final DefaultListener listener = new DefaultListener();
         // subscriber connects and creates durable sub
@@ -191,10 +193,6 @@ public class PahoMQTTTest extends MQTTTestSupport {
 
     @Test(timeout = 300000)
     public void testOverlappingTopics() throws Exception {
-
-        stopBroker();
-        protocolConfig = "transport.subscriptionStrategy=mqtt-virtual-topic-subscriptions";
-        startBroker();
 
         final DefaultListener listener = new DefaultListener();
         // subscriber connects and creates durable sub
@@ -275,7 +273,7 @@ public class PahoMQTTTest extends MQTTTestSupport {
             public boolean isSatisified() throws Exception {
                 return listener.result != null;
             }
-        }, TimeUnit.SECONDS.toMillis(20)));
+        }, TimeUnit.SECONDS.toMillis(5)));
         assertNull(listener.result);
         assertTrue(client.getPendingDeliveryTokens().length == 0);
 
@@ -287,7 +285,7 @@ public class PahoMQTTTest extends MQTTTestSupport {
             public boolean isSatisified() throws Exception {
                 return listener.result != null;
             }
-        }, TimeUnit.SECONDS.toMillis(20)));
+        }, TimeUnit.SECONDS.toMillis(5)));
         assertNull(listener.result);
         assertTrue(client.getPendingDeliveryTokens().length == 0);
     }
@@ -350,9 +348,76 @@ public class PahoMQTTTest extends MQTTTestSupport {
         assertEquals(0, listener.received);
     }
 
+    @Test(timeout = 300000)
+    public void testClientIdSpecialChars() throws Exception {
+        testClientIdSpecialChars(MqttConnectOptions.MQTT_VERSION_3_1);
+        testClientIdSpecialChars(MqttConnectOptions.MQTT_VERSION_3_1_1);
+    }
+
+    protected void testClientId(String clientId, int mqttVersion, final DefaultListener clientAdminMqttCallback) throws Exception {
+        MqttConnectOptions options1 = new MqttConnectOptions();
+        options1.setCleanSession(false);
+        options1.setUserName("client1");
+        options1.setPassword("client1".toCharArray());
+        options1.setMqttVersion(mqttVersion);
+        final DefaultListener client1MqttCallback = new DefaultListener();
+        MqttClient client1 = createClient(options1, clientId, client1MqttCallback);
+        client1.setCallback(client1MqttCallback);
+
+        String topic = "client1/" + clientId + "/topic";
+        client1.subscribe(topic, 1);
+
+        String message = "Message from client: " + clientId;
+        client1.publish(topic, message.getBytes(), 1, false);
+
+
+        assertTrue(Wait.waitFor(new Wait.Condition() {
+            @Override
+            public boolean isSatisified() throws Exception {
+                return client1MqttCallback.result != null;
+            }
+        }, TimeUnit.SECONDS.toMillis(45), TimeUnit.MILLISECONDS.toMillis(200)));
+        assertEquals(message, client1MqttCallback.result);
+        assertEquals(1, client1MqttCallback.received);
+
+        assertTrue(Wait.waitFor(new Wait.Condition() {
+            @Override
+            public boolean isSatisified() throws Exception {
+                return clientAdminMqttCallback.result != null;
+            }
+        }, TimeUnit.SECONDS.toMillis(45), TimeUnit.MILLISECONDS.toMillis(200)));
+        assertEquals(message, clientAdminMqttCallback.result);
+
+        assertTrue(client1.isConnected());
+        client1.disconnect();
+    }
+
+    protected void testClientIdSpecialChars(int mqttVersion) throws Exception {
+
+        LOG.info("Test MQTT version {}", mqttVersion);
+        MqttConnectOptions optionsAdmin = new MqttConnectOptions();
+        optionsAdmin.setCleanSession(false);
+        optionsAdmin.setUserName("admin");
+        optionsAdmin.setPassword("admin".toCharArray());
+
+        DefaultListener clientAdminMqttCallback = new DefaultListener();
+        MqttClient clientAdmin = createClient(optionsAdmin, "admin", clientAdminMqttCallback);
+        clientAdmin.subscribe("#", 1);
+
+        testClientId(":%&&@.:llll", mqttVersion, clientAdminMqttCallback);
+        testClientId("Consumer:id:AT_LEAST_ONCE", mqttVersion, clientAdminMqttCallback);
+        testClientId("Consumer:qid:EXACTLY_ONCE:VirtualTopic", mqttVersion, clientAdminMqttCallback);
+        testClientId("Consumertestmin:testst:AT_LEAST_ONCE.VirtualTopic::AT_LEAST_ONCE", mqttVersion, clientAdminMqttCallback);
+    }
+
+
     protected MqttClient createClient(boolean cleanSession, String clientId, MqttCallback listener) throws Exception {
         MqttConnectOptions options = new MqttConnectOptions();
         options.setCleanSession(cleanSession);
+        return createClient(options, clientId, listener);
+    }
+
+    protected MqttClient createClient(MqttConnectOptions options, String clientId, MqttCallback listener) throws Exception {
         final MqttClient client = new MqttClient("tcp://localhost:" + getPort(), clientId, new MemoryPersistence());
         client.setCallback(listener);
         client.connect(options);

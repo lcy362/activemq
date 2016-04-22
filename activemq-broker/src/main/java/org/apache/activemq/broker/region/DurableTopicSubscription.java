@@ -228,9 +228,9 @@ public class DurableTopicSubscription extends PrefetchSubscription implements Us
                     if (keepDurableSubsActive && pending.isTransient()) {
                         pending.addMessageFirst(node);
                         pending.rollback(node.getMessageId());
-                    } else {
-                        node.decrementReferenceCount();
                     }
+                    // createMessageDispatch increments on remove from pending for dispatch
+                    node.decrementReferenceCount();
                 }
 
                 if (!topicsToDeactivate.isEmpty()) {
@@ -262,6 +262,7 @@ public class DurableTopicSubscription extends PrefetchSubscription implements Us
     protected MessageDispatch createMessageDispatch(MessageReference node, Message message) {
         MessageDispatch md = super.createMessageDispatch(node, message);
         if (node != QueueMessageReference.NULL_MESSAGE) {
+            node.incrementReferenceCount();
             Integer count = redeliveredMessages.get(node.getMessageId());
             if (count != null) {
                 md.setRedeliveryCounter(count.intValue());
@@ -307,7 +308,11 @@ public class DurableTopicSubscription extends PrefetchSubscription implements Us
 
     @Override
     public void setSelector(String selector) throws InvalidSelectorException {
-        throw new UnsupportedOperationException("You cannot dynamically change the selector for durable topic subscriptions");
+        if (active.get()) {
+            throw new UnsupportedOperationException("You cannot dynamically change the selector for durable topic subscriptions");
+        } else {
+            super.setSelector(getSelector());
+        }
     }
 
     @Override
@@ -322,6 +327,7 @@ public class DurableTopicSubscription extends PrefetchSubscription implements Us
         regionDestination.acknowledge(context, this, ack, node);
         redeliveredMessages.remove(node.getMessageId());
         node.decrementReferenceCount();
+        ((Destination)node.getRegionDestination()).getDestinationStatistics().getDequeues().increment();
     }
 
     @Override
@@ -347,7 +353,6 @@ public class DurableTopicSubscription extends PrefetchSubscription implements Us
                     MessageReference node = pending.next();
                     node.decrementReferenceCount();
                 }
-
             } finally {
                 pending.release();
                 pending.clear();

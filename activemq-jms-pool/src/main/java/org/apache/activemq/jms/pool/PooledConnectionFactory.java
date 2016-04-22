@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -32,6 +32,7 @@ import org.apache.commons.pool2.KeyedPooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
 import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,7 +63,6 @@ import org.slf4j.LoggerFactory;
  * eviction thread may be configured using the {@link org.apache.activemq.jms.pool.PooledConnectionFactory#setTimeBetweenExpirationCheckMillis} method.  By
  * default the value is -1 which means no eviction thread will be run.  Set to a non-negative value to
  * configure the idle eviction thread to run.
- *
  */
 public class PooledConnectionFactory implements ConnectionFactory, QueueConnectionFactory, TopicConnectionFactory {
     private static final transient Logger LOG = LoggerFactory.getLogger(PooledConnectionFactory.class);
@@ -86,6 +86,8 @@ public class PooledConnectionFactory implements ConnectionFactory, QueueConnecti
 
     public void initConnectionsPool() {
         if (this.connectionsPool == null) {
+            final GenericKeyedObjectPoolConfig poolConfig = new GenericKeyedObjectPoolConfig();
+            poolConfig.setJmxEnabled(false);
             this.connectionsPool = new GenericKeyedObjectPool<ConnectionKey, ConnectionPool>(
                 new KeyedPooledObjectFactory<ConnectionKey, ConnectionPool>() {
                     @Override
@@ -103,9 +105,7 @@ public class PooledConnectionFactory implements ConnectionFactory, QueueConnecti
                         connection.setUseAnonymousProducers(isUseAnonymousProducers());
                         connection.setReconnectOnException(isReconnectOnException());
 
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("Created new connection: {}", connection);
-                        }
+                        LOG.trace("Created new connection: {}", connection);
 
                         PooledConnectionFactory.this.mostRecentlyCreated.set(connection);
 
@@ -116,9 +116,7 @@ public class PooledConnectionFactory implements ConnectionFactory, QueueConnecti
                     public void destroyObject(ConnectionKey connectionKey, PooledObject<ConnectionPool> pooledObject) throws Exception {
                         ConnectionPool connection = pooledObject.getObject();
                         try {
-                            if (LOG.isTraceEnabled()) {
-                                LOG.trace("Destroying connection: {}", connection);
-                            }
+                            LOG.trace("Destroying connection: {}", connection);
                             connection.close();
                         } catch (Exception e) {
                             LOG.warn("Close connection failed for connection: " + connection + ". This exception will be ignored.",e);
@@ -129,10 +127,7 @@ public class PooledConnectionFactory implements ConnectionFactory, QueueConnecti
                     public boolean validateObject(ConnectionKey connectionKey, PooledObject<ConnectionPool> pooledObject) {
                         ConnectionPool connection = pooledObject.getObject();
                         if (connection != null && connection.expiredCheck()) {
-                            if (LOG.isTraceEnabled()) {
-                                LOG.trace("Connection has expired: {} and will be destroyed", connection);
-                            }
-
+                            LOG.trace("Connection has expired: {} and will be destroyed", connection);
                             return false;
                         }
 
@@ -147,7 +142,7 @@ public class PooledConnectionFactory implements ConnectionFactory, QueueConnecti
                     public void passivateObject(ConnectionKey connectionKey, PooledObject<ConnectionPool> pooledObject) throws Exception {
                     }
 
-                });
+                }, poolConfig);
 
             // Set max idle (not max active) since our connections always idle in the pool.
             this.connectionsPool.setMaxIdlePerKey(1);
@@ -302,7 +297,7 @@ public class PooledConnectionFactory implements ConnectionFactory, QueueConnecti
     public void stop() {
         if (stopped.compareAndSet(false, true)) {
             LOG.debug("Stopping the PooledConnectionFactory, number of connections in cache: {}",
-                    connectionsPool != null ? connectionsPool.getNumActive() : 0);
+                      connectionsPool != null ? connectionsPool.getNumActive() : 0);
             try {
                 if (connectionsPool != null) {
                     connectionsPool.close();
@@ -319,7 +314,6 @@ public class PooledConnectionFactory implements ConnectionFactory, QueueConnecti
      * are in use be client's will be closed.
      */
     public void clear() {
-
         if (stopped.get()) {
             return;
         }

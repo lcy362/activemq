@@ -17,11 +17,8 @@
 package org.apache.activemq.broker.jmx;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
@@ -565,7 +562,7 @@ public class ManagedRegionBroker extends RegionBroker {
     public void remove(SubscriptionView view, String messageId)  throws Exception {
         ActiveMQDestination destination = getTopicDestination(view);
         if (destination != null) {
-            final Topic topic = (Topic) getTopicRegion().getDestinationMap().get(destination);
+            final Destination topic = getTopicRegion().getDestinationMap().get(destination);
             final MessageAck messageAck = new MessageAck();
             messageAck.setMessageID(new MessageId(messageId));
             messageAck.setDestination(destination);
@@ -588,7 +585,7 @@ public class ManagedRegionBroker extends RegionBroker {
     protected Message[] getSubscriberMessages(SubscriptionView view) {
         ActiveMQDestination destination = getTopicDestination(view);
         if (destination != null) {
-            Topic topic = (Topic) getTopicRegion().getDestinationMap().get(destination);
+            Destination topic = getTopicRegion().getDestinationMap().get(destination);
             return topic.browse();
 
         } else {
@@ -607,9 +604,23 @@ public class ManagedRegionBroker extends RegionBroker {
         return destination;
     }
 
+    private ObjectName[] onlyNonSuppressed (Set<ObjectName> set){
+        List<ObjectName> nonSuppressed = new ArrayList<ObjectName>();
+        for(ObjectName key : set){
+            if (managementContext.isAllowedToRegister(key)){
+                nonSuppressed.add(key);
+            }
+        }
+        return nonSuppressed.toArray(new ObjectName[nonSuppressed.size()]);
+    }
+
     protected ObjectName[] getTopics() {
         Set<ObjectName> set = topics.keySet();
         return set.toArray(new ObjectName[set.size()]);
+    }
+
+    protected ObjectName[] getTopicsNonSuppressed() {
+        return onlyNonSuppressed(topics.keySet());
     }
 
     protected ObjectName[] getQueues() {
@@ -617,9 +628,17 @@ public class ManagedRegionBroker extends RegionBroker {
         return set.toArray(new ObjectName[set.size()]);
     }
 
+    protected ObjectName[] getQueuesNonSuppressed() {
+        return onlyNonSuppressed(queues.keySet());
+    }
+
     protected ObjectName[] getTemporaryTopics() {
         Set<ObjectName> set = temporaryTopics.keySet();
         return set.toArray(new ObjectName[set.size()]);
+    }
+
+    protected ObjectName[] getTemporaryTopicsNonSuppressed() {
+        return onlyNonSuppressed(temporaryTopics.keySet());
     }
 
     protected ObjectName[] getTemporaryQueues() {
@@ -627,9 +646,17 @@ public class ManagedRegionBroker extends RegionBroker {
         return set.toArray(new ObjectName[set.size()]);
     }
 
+    protected ObjectName[] getTemporaryQueuesNonSuppressed() {
+        return onlyNonSuppressed(temporaryQueues.keySet());
+    }
+
     protected ObjectName[] getTopicSubscribers() {
         Set<ObjectName> set = topicSubscribers.keySet();
         return set.toArray(new ObjectName[set.size()]);
+    }
+
+    protected ObjectName[] getTopicSubscribersNonSuppressed() {
+        return onlyNonSuppressed(topicSubscribers.keySet());
     }
 
     protected ObjectName[] getDurableTopicSubscribers() {
@@ -637,9 +664,17 @@ public class ManagedRegionBroker extends RegionBroker {
         return set.toArray(new ObjectName[set.size()]);
     }
 
+    protected ObjectName[] getDurableTopicSubscribersNonSuppressed() {
+        return onlyNonSuppressed(durableTopicSubscribers.keySet());
+    }
+
     protected ObjectName[] getQueueSubscribers() {
         Set<ObjectName> set = queueSubscribers.keySet();
         return set.toArray(new ObjectName[set.size()]);
+    }
+
+    protected ObjectName[] getQueueSubscribersNonSuppressed() {
+        return onlyNonSuppressed(queueSubscribers.keySet());
     }
 
     protected ObjectName[] getTemporaryTopicSubscribers() {
@@ -647,9 +682,17 @@ public class ManagedRegionBroker extends RegionBroker {
         return set.toArray(new ObjectName[set.size()]);
     }
 
+    protected ObjectName[] getTemporaryTopicSubscribersNonSuppressed() {
+        return onlyNonSuppressed(temporaryTopicSubscribers.keySet());
+    }
+
     protected ObjectName[] getTemporaryQueueSubscribers() {
         Set<ObjectName> set = temporaryQueueSubscribers.keySet();
         return set.toArray(new ObjectName[set.size()]);
+    }
+
+    protected ObjectName[] getTemporaryQueueSubscribersNonSuppressed() {
+        return onlyNonSuppressed(temporaryQueueSubscribers.keySet());
     }
 
     protected ObjectName[] getInactiveDurableTopicSubscribers() {
@@ -657,9 +700,17 @@ public class ManagedRegionBroker extends RegionBroker {
         return set.toArray(new ObjectName[set.size()]);
     }
 
+    protected ObjectName[] getInactiveDurableTopicSubscribersNonSuppressed() {
+        return onlyNonSuppressed(inactiveDurableTopicSubscribers.keySet());
+    }
+
     protected ObjectName[] getTopicProducers() {
         Set<ObjectName> set = topicProducers.keySet();
         return set.toArray(new ObjectName[set.size()]);
+    }
+
+    protected ObjectName[] getTopicProducersNonSuppressed() {
+        return onlyNonSuppressed(topicProducers.keySet());
     }
 
     protected ObjectName[] getQueueProducers() {
@@ -667,9 +718,17 @@ public class ManagedRegionBroker extends RegionBroker {
         return set.toArray(new ObjectName[set.size()]);
     }
 
+    protected ObjectName[] getQueueProducersNonSuppressed() {
+        return onlyNonSuppressed(queueProducers.keySet());
+    }
+
     protected ObjectName[] getTemporaryTopicProducers() {
         Set<ObjectName> set = temporaryTopicProducers.keySet();
         return set.toArray(new ObjectName[set.size()]);
+    }
+
+    protected ObjectName[] getTemporaryTopicProducersNonSuppressed() {
+        return onlyNonSuppressed(temporaryTopicProducers.keySet());
     }
 
     protected ObjectName[] getTemporaryQueueProducers() {
@@ -677,9 +736,17 @@ public class ManagedRegionBroker extends RegionBroker {
         return set.toArray(new ObjectName[set.size()]);
     }
 
+    protected ObjectName[] getTemporaryQueueProducersNonSuppressed() {
+        return onlyNonSuppressed(temporaryQueueProducers.keySet());
+    }
+
     protected ObjectName[] getDynamicDestinationProducers() {
         Set<ObjectName> set = dynamicDestinationProducers.keySet();
         return set.toArray(new ObjectName[set.size()]);
+    }
+
+    protected ObjectName[] getDynamicDestinationProducersNonSuppressed() {
+        return onlyNonSuppressed(dynamicDestinationProducers.keySet());
     }
 
     public Broker getContextBroker() {

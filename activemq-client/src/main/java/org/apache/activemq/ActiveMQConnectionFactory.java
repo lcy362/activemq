@@ -21,9 +21,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.RejectedExecutionHandler;
 
 import javax.jms.Connection;
@@ -46,10 +44,7 @@ import org.apache.activemq.thread.TaskRunnerFactory;
 import org.apache.activemq.transport.Transport;
 import org.apache.activemq.transport.TransportFactory;
 import org.apache.activemq.transport.TransportListener;
-import org.apache.activemq.util.IdGenerator;
-import org.apache.activemq.util.IntrospectionSupport;
-import org.apache.activemq.util.JMSExceptionSupport;
-import org.apache.activemq.util.URISupport;
+import org.apache.activemq.util.*;
 import org.apache.activemq.util.URISupport.CompositeData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -183,6 +178,8 @@ public class ActiveMQConnectionFactory extends JNDIBaseStorable implements Conne
     protected int xaAckMode = -1; // ensure default init before setting via brokerUrl introspection in sub class
     private boolean rmIdFromConnectionId = false;
     private boolean consumerExpiryCheckEnabled = true;
+    private List<String> trustedPackages = Arrays.asList(ClassLoadingAwareObjectInputStream.serializablePackages);
+    private boolean trustAllPackages = false;
 
     // /////////////////////////////////////////////
     //
@@ -422,6 +419,8 @@ public class ActiveMQConnectionFactory extends JNDIBaseStorable implements Conne
         connection.setNestedMapAndListEnabled(isNestedMapAndListEnabled());
         connection.setRmIdFromConnectionId(isRmIdFromConnectionId());
         connection.setConsumerExpiryCheckEnabled(isConsumerExpiryCheckEnabled());
+        connection.setTrustedPackages(getTrustedPackages());
+        connection.setTrustAllPackages(isTrustAllPackages());
         if (transportListener != null) {
             connection.addTransportListener(transportListener);
         }
@@ -1259,5 +1258,21 @@ public class ActiveMQConnectionFactory extends JNDIBaseStorable implements Conne
      */
     public void setConsumerExpiryCheckEnabled(boolean consumerExpiryCheckEnabled) {
         this.consumerExpiryCheckEnabled = consumerExpiryCheckEnabled;
+    }
+
+    public List<String> getTrustedPackages() {
+        return trustedPackages;
+    }
+
+    public void setTrustedPackages(List<String> trustedPackages) {
+        this.trustedPackages = trustedPackages;
+    }
+
+    public boolean isTrustAllPackages() {
+        return trustAllPackages;
+    }
+
+    public void setTrustAllPackages(boolean trustAllPackages) {
+        this.trustAllPackages = trustAllPackages;
     }
 }

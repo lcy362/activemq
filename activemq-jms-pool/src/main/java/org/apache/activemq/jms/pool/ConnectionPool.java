@@ -29,13 +29,11 @@ import javax.jms.Session;
 import javax.jms.TemporaryQueue;
 import javax.jms.TemporaryTopic;
 
-import org.apache.commons.pool2.BasePooledObjectFactory;
-import org.apache.commons.pool2.KeyedObjectPool;
 import org.apache.commons.pool2.KeyedPooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
 import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
-import org.apache.commons.pool2.impl.GenericObjectPool;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,8 +64,14 @@ public class ConnectionPool implements ExceptionListener {
     private ExceptionListener parentExceptionListener;
 
     public ConnectionPool(Connection connection) {
-
+        final GenericKeyedObjectPoolConfig poolConfig = new GenericKeyedObjectPoolConfig();
+        poolConfig.setJmxEnabled(false);
         this.connection = wrap(connection);
+        try {
+            this.connection.setExceptionListener(this);
+        } catch (JMSException ex) {
+            LOG.warn("Could not set exception listener on create of ConnectionPool");
+        }
 
         // Create our internal Pool of session instances.
         this.sessionPool = new GenericKeyedObjectPool<SessionKey, SessionHolder>(
@@ -80,7 +84,7 @@ public class ConnectionPool implements ExceptionListener {
 
                 @Override
                 public void destroyObject(SessionKey sessionKey, PooledObject<SessionHolder> pooledObject) throws Exception {
-                    ((SessionHolder)pooledObject.getObject()).close();
+                    pooledObject.getObject().close();
                 }
 
                 @Override
@@ -95,7 +99,7 @@ public class ConnectionPool implements ExceptionListener {
                 @Override
                 public void passivateObject(SessionKey sessionKey, PooledObject<SessionHolder> pooledObject) throws Exception {
                 }
-            }
+            }, poolConfig
         );
     }
 
@@ -358,26 +362,21 @@ public class ConnectionPool implements ExceptionListener {
      */
     public void setReconnectOnException(boolean reconnectOnException) {
         this.reconnectOnException = reconnectOnException;
-        try {
-            if (isReconnectOnException()) {
-                if (connection.getExceptionListener() != null) {
-                    parentExceptionListener = connection.getExceptionListener();
-                }
-                connection.setExceptionListener(this);
-            } else {
-                if (parentExceptionListener != null) {
-                    connection.setExceptionListener(parentExceptionListener);
-                }
-                parentExceptionListener = null;
-            }
-        } catch (JMSException jmse) {
-            LOG.warn("Cannot set reconnect exception listener", jmse);
-        }
+    }
+
+    ExceptionListener getParentExceptionListener() {
+        return parentExceptionListener;
+    }
+
+    void setParentExceptionListener(ExceptionListener parentExceptionListener) {
+        this.parentExceptionListener = parentExceptionListener;
     }
 
     @Override
     public void onException(JMSException exception) {
-        close();
+        if (isReconnectOnException()) {
+            close();
+        }
         if (parentExceptionListener != null) {
             parentExceptionListener.onException(exception);
         }

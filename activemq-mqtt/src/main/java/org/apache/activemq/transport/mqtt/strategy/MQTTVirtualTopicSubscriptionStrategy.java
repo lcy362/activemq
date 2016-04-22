@@ -84,22 +84,21 @@ public class MQTTVirtualTopicSubscriptionStrategy extends AbstractMQTTSubscripti
         ActiveMQDestination destination = null;
         int prefetch = ActiveMQPrefetchPolicy.DEFAULT_QUEUE_PREFETCH;
         ConsumerInfo consumerInfo = new ConsumerInfo(getNextConsumerId());
-
+        String converted = convertMQTTToActiveMQ(topicName);
         if (!protocol.isCleanSession() && protocol.getClientId() != null && requestedQoS.ordinal() >= QoS.AT_LEAST_ONCE.ordinal()) {
-            String converted = convertMQTTToActiveMQ(topicName);
+
             if (converted.startsWith(VIRTUALTOPIC_PREFIX)) {
                 destination = new ActiveMQTopic(converted);
                 prefetch = ActiveMQPrefetchPolicy.DEFAULT_DURABLE_TOPIC_PREFETCH;
                 consumerInfo.setSubscriptionName(requestedQoS + ":" + topicName);
             } else {
                 converted = VIRTUALTOPIC_CONSUMER_PREFIX +
-                            protocol.getClientId() + ":" + requestedQoS + "." +
+                            convertMQTTToActiveMQ(protocol.getClientId()) + ":" + requestedQoS + "." +
                             VIRTUALTOPIC_PREFIX + converted;
                 destination = new ActiveMQQueue(converted);
                 prefetch = ActiveMQPrefetchPolicy.DEFAULT_QUEUE_PREFETCH;
             }
         } else {
-            String converted = convertMQTTToActiveMQ(topicName);
             if (!converted.startsWith(VIRTUALTOPIC_PREFIX)) {
                 converted = VIRTUALTOPIC_PREFIX + converted;
             }
@@ -183,10 +182,25 @@ public class MQTTVirtualTopicSubscriptionStrategy extends AbstractMQTTSubscripti
 
     @Override
     public ActiveMQDestination onSend(String topicName) {
-        if (!topicName.startsWith(VIRTUALTOPIC_PREFIX)) {
-            return new ActiveMQTopic(VIRTUALTOPIC_PREFIX + topicName);
+        ActiveMQTopic topic = new ActiveMQTopic(topicName);
+        if (topic.isComposite()) {
+           ActiveMQDestination[] composites = topic.getCompositeDestinations();
+           for (ActiveMQDestination composite : composites) {
+                composite.setPhysicalName(prefix(composite.getPhysicalName()));
+           }
+           ActiveMQTopic result = new ActiveMQTopic();
+           result.setCompositeDestinations(composites);
+           return result;
         } else {
-            return new ActiveMQTopic(topicName);
+          return new ActiveMQTopic(prefix(topicName));
+        }
+    }
+
+    private String prefix(String topicName) {
+        if (!topicName.startsWith(VIRTUALTOPIC_PREFIX)) {
+            return VIRTUALTOPIC_PREFIX + topicName;
+        } else {
+            return topicName;
         }
     }
 
@@ -226,7 +240,7 @@ public class MQTTVirtualTopicSubscriptionStrategy extends AbstractMQTTSubscripti
                 });
             }
         } catch (Throwable e) {
-            LOG.warn("Could not delete the MQTT queue subsscriptions.", e);
+            LOG.warn("Could not delete the MQTT queue subscriptions.", e);
         }
     }
 
@@ -274,7 +288,7 @@ public class MQTTVirtualTopicSubscriptionStrategy extends AbstractMQTTSubscripti
         final QueueRegion queueRegion = (QueueRegion) regionBroker.getQueueRegion();
         for (ActiveMQDestination destination : queueRegion.getDestinationMap().keySet()) {
             if (destination.isQueue() && !destination.isTemporary()) {
-                if (destination.getPhysicalName().startsWith("Consumer." + clientId)) {
+                if (destination.getPhysicalName().startsWith("Consumer." + clientId + ":")) {
                     LOG.debug("Recovered client sub: {} on connect", destination.getPhysicalName());
                     result.add((ActiveMQQueue) destination);
                 }

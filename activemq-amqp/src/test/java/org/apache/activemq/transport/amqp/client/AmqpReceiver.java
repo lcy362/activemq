@@ -32,8 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.jms.InvalidDestinationException;
 
 import org.apache.activemq.transport.amqp.client.util.ClientFuture;
+import org.apache.activemq.transport.amqp.client.util.IOExceptionSupport;
 import org.apache.activemq.transport.amqp.client.util.UnmodifiableReceiver;
-import org.apache.activemq.util.IOExceptionSupport;
+import org.apache.qpid.proton.amqp.Binary;
 import org.apache.qpid.proton.amqp.DescribedType;
 import org.apache.qpid.proton.amqp.Symbol;
 import org.apache.qpid.proton.amqp.messaging.Accepted;
@@ -44,6 +45,7 @@ import org.apache.qpid.proton.amqp.messaging.Source;
 import org.apache.qpid.proton.amqp.messaging.Target;
 import org.apache.qpid.proton.amqp.messaging.TerminusDurability;
 import org.apache.qpid.proton.amqp.messaging.TerminusExpiryPolicy;
+import org.apache.qpid.proton.amqp.transaction.TransactionalState;
 import org.apache.qpid.proton.amqp.transport.ReceiverSettleMode;
 import org.apache.qpid.proton.amqp.transport.SenderSettleMode;
 import org.apache.qpid.proton.engine.Delivery;
@@ -301,10 +303,22 @@ public class AmqpReceiver extends AmqpAbstractResource<Receiver> {
                 checkClosed();
                 try {
                     if (!delivery.isSettled()) {
-                        delivery.disposition(Accepted.getInstance());
-                        delivery.settle();
-                        session.pumpToProtonTransport();
+                        if (session.isInTransaction()) {
+                            Binary txnId = session.getTransactionId().getRemoteTxId();
+                            if (txnId != null) {
+                                TransactionalState txState = new TransactionalState();
+                                txState.setOutcome(Accepted.getInstance());
+                                txState.setTxnId(txnId);
+                                delivery.disposition(txState);
+                                delivery.settle();
+                                session.getTransactionContext().registerTxConsumer(AmqpReceiver.this);
+                            }
+                        } else {
+                            delivery.disposition(Accepted.getInstance());
+                            delivery.settle();
+                        }
                     }
+                    session.pumpToProtonTransport();
                     request.onSuccess();
                 } catch (Exception e) {
                     request.onFailure(e);
@@ -512,17 +526,29 @@ public class AmqpReceiver extends AmqpAbstractResource<Receiver> {
 
     @Override
     protected void doOpenInspection() {
-        getStateInspector().inspectOpenedResource(getReceiver());
+        try {
+            getStateInspector().inspectOpenedResource(getReceiver());
+        } catch (Throwable error) {
+            getStateInspector().markAsInvalid(error.getMessage());
+        }
     }
 
     @Override
     protected void doClosedInspection() {
-        getStateInspector().inspectClosedResource(getReceiver());
+        try {
+            getStateInspector().inspectClosedResource(getReceiver());
+        } catch (Throwable error) {
+            getStateInspector().markAsInvalid(error.getMessage());
+        }
     }
 
     @Override
     protected void doDetachedInspection() {
-        getStateInspector().inspectDetachedResource(getReceiver());
+        try {
+            getStateInspector().inspectDetachedResource(getReceiver());
+        } catch (Throwable error) {
+            getStateInspector().markAsInvalid(error.getMessage());
+        }
     }
 
     protected void configureSource(Source source) {
@@ -644,5 +670,19 @@ public class AmqpReceiver extends AmqpAbstractResource<Receiver> {
         if (isClosed()) {
             throw new IllegalStateException("Receiver is already closed");
         }
+    }
+
+    //----- Internal Transaction state callbacks -----------------------------//
+
+    void preCommit() {
+    }
+
+    void preRollback() {
+    }
+
+    void postCommit() {
+    }
+
+    void postRollback() {
     }
 }

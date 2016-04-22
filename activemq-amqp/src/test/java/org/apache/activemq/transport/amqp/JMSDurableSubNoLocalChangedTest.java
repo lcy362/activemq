@@ -22,8 +22,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
 
 import javax.jms.JMSException;
 import javax.jms.Message;
@@ -38,7 +36,6 @@ import org.apache.activemq.broker.BrokerService;
 import org.apache.activemq.util.Wait;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -53,7 +50,7 @@ public class JMSDurableSubNoLocalChangedTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(JMSDurableSubNoLocalChangedTest.class);
 
-    private final int MSG_COUNT = 10;
+    private final int MSG_COUNT = 5;
 
     private BrokerService brokerService;
     private URI connectionUri;
@@ -62,7 +59,7 @@ public class JMSDurableSubNoLocalChangedTest {
     private String subscriptionName;
     private String topicName;
 
-    private final List<TopicConnection> connections = new ArrayList<TopicConnection>();
+    private TopicConnection connection;
 
     @Rule public TestName name = new TestName();
 
@@ -70,49 +67,27 @@ public class JMSDurableSubNoLocalChangedTest {
         TopicConnection connection = JMSClientContext.INSTANCE.createTopicConnection(connectionUri, null, null, clientId, true);
         connection.start();
 
-        connections.add(connection);
-
         return connection;
     }
 
     @Before
     public void setUp() throws Exception {
-        brokerService = new BrokerService();
-        brokerService.setUseJmx(true);
-        brokerService.getManagementContext().setCreateMBeanServer(false);
-        brokerService.setPersistent(false);
-        brokerService.setAdvisorySupport(false);
-        brokerService.setSchedulerSupport(false);
-        brokerService.setKeepDurableSubsActive(false);
-        brokerService.addConnector("amqp://0.0.0.0:0");
-        brokerService.start();
-
-        connectionUri = new URI("amqp://localhost:" +
-            brokerService.getTransportConnectorByScheme("amqp").getPublishableConnectURI().getPort());
-
-        clientId = name.getMethodName() + "-ClientId";
-        subscriptionName = name.getMethodName() + "-Subscription";
-        topicName = name.getMethodName();
+        startBroker();
     }
 
     @After
     public void tearDown() throws Exception {
-        for (TopicConnection connection : connections) {
-            try {
-                connection.close();
-            } catch (Exception e) {}
+        try {
+            connection.close();
+        } catch (Exception e) {
         }
 
-        connections.clear();
-
-        brokerService.stop();
-        brokerService.waitUntilStopped();
+        stopBroker();
     }
 
-    @Ignore("Not yet working with current QPid JMS client")
     @Test(timeout = 60000)
-    public void testDurableResubscribeWithNewNoLocalValue() throws Exception {
-        TopicConnection connection = createConnection();
+    public void testResubscribeWithNewNoLocalValueNoBrokerRestart() throws Exception {
+        connection = createConnection();
         TopicSession session = connection.createTopicSession(false, Session.AUTO_ACKNOWLEDGE);
 
         Topic topic = session.createTopic(topicName);
@@ -130,13 +105,13 @@ public class JMSDurableSubNoLocalChangedTest {
 
         // Standard subscriber should receive them
         for (int i = 0; i < MSG_COUNT; ++i) {
-            Message message = nonDurableSubscriber.receive(5000);
+            Message message = nonDurableSubscriber.receive(2000);
             assertNotNull(message);
         }
 
         // Durable noLocal=true subscription should not receive them
         {
-            Message message = durableSubscriber.receive(2000);
+            Message message = durableSubscriber.receive(500);
             assertNull(message);
         }
 
@@ -175,7 +150,7 @@ public class JMSDurableSubNoLocalChangedTest {
         // Durable noLocal=false subscription should not receive them as the subscriptions should
         // have been removed and recreated to update the noLocal flag.
         {
-            Message message = durableSubscriber.receive(2000);
+            Message message = durableSubscriber.receive(500);
             assertNull(message);
         }
 
@@ -184,7 +159,98 @@ public class JMSDurableSubNoLocalChangedTest {
 
         // Durable subscriber should receive them
         for (int i = 0; i < MSG_COUNT; ++i) {
-            Message message = durableSubscriber.receive(5000);
+            Message message = durableSubscriber.receive(2000);
+            assertNotNull("Should get local messages now", message);
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testDurableResubscribeWithNewNoLocalValueWithBrokerRestart() throws Exception {
+        connection = createConnection();
+        TopicSession session = connection.createTopicSession(false, Session.AUTO_ACKNOWLEDGE);
+
+        Topic topic = session.createTopic(topicName);
+
+        // Create a Durable Topic Subscription with noLocal set to true.
+        TopicSubscriber durableSubscriber = session.createDurableSubscriber(topic, subscriptionName, null, true);
+
+        // Create a Durable Topic Subscription with noLocal set to true.
+        TopicSubscriber nonDurableSubscriber = session.createSubscriber(topic);
+
+        // Public first set, only the non durable sub should get these.
+        publishToTopic(session, topic);
+
+        LOG.debug("Testing that noLocal=true subscription doesn't get any messages.");
+
+        // Standard subscriber should receive them
+        for (int i = 0; i < MSG_COUNT; ++i) {
+            Message message = nonDurableSubscriber.receive(2000);
+            assertNotNull(message);
+        }
+
+        // Durable noLocal=true subscription should not receive them
+        {
+            Message message = durableSubscriber.receive(500);
+            assertNull(message);
+        }
+
+        // Public second set for testing durable sub changed.
+        publishToTopic(session, topic);
+
+        assertEquals(1, brokerService.getAdminView().getDurableTopicSubscribers().length);
+        assertEquals(0, brokerService.getAdminView().getInactiveDurableTopicSubscribers().length);
+
+        // Durable now goes inactive.
+        durableSubscriber.close();
+
+        assertTrue("Should have no durables.", Wait.waitFor(new Wait.Condition() {
+
+            @Override
+            public boolean isSatisified() throws Exception {
+                return brokerService.getAdminView().getDurableTopicSubscribers().length == 0;
+            }
+        }));
+        assertTrue("Should have an inactive sub.", Wait.waitFor(new Wait.Condition() {
+
+            @Override
+            public boolean isSatisified() throws Exception {
+                return brokerService.getAdminView().getInactiveDurableTopicSubscribers().length == 1;
+            }
+        }));
+
+        LOG.debug("Testing that updated noLocal=false subscription does get any messages.");
+
+        connection.close();
+
+        restartBroker();
+
+        connection = createConnection();
+
+        session = connection.createTopicSession(false, Session.AUTO_ACKNOWLEDGE);
+
+        // The previous subscription should be restored as an offline subscription.
+        assertEquals(0, brokerService.getAdminView().getDurableTopicSubscribers().length);
+        assertEquals(1, brokerService.getAdminView().getInactiveDurableTopicSubscribers().length);
+
+        // Recreate a Durable Topic Subscription with noLocal set to false.
+        durableSubscriber = session.createDurableSubscriber(topic, subscriptionName, null, false);
+
+        assertEquals(1, brokerService.getAdminView().getDurableTopicSubscribers().length);
+        assertEquals(0, brokerService.getAdminView().getInactiveDurableTopicSubscribers().length);
+
+        // Durable noLocal=false subscription should not receive them as the subscriptions should
+        // have been removed and recreated to update the noLocal flag.
+        {
+            Message message = durableSubscriber.receive(500);
+            assertNull(message);
+        }
+
+        // Public third set which should get queued for the durable sub with noLocal=false
+        publishToTopic(session, topic);
+
+        // Durable subscriber should receive them
+        for (int i = 0; i < MSG_COUNT; ++i) {
+            Message message = durableSubscriber.receive(2000);
             assertNotNull("Should get local messages now", message);
         }
     }
@@ -196,5 +262,42 @@ public class JMSDurableSubNoLocalChangedTest {
         }
 
         publisher.close();
+    }
+
+    private void startBroker() throws Exception {
+        createBroker(true);
+    }
+
+    private void restartBroker() throws Exception {
+        stopBroker();
+        createBroker(false);
+    }
+
+    private void stopBroker() throws Exception {
+        if (brokerService != null) {
+            brokerService.stop();
+            brokerService.waitUntilStopped();
+            brokerService = null;
+        }
+    }
+
+    private void createBroker(boolean deleteMessages) throws Exception {
+        brokerService = new BrokerService();
+        brokerService.setUseJmx(true);
+        brokerService.getManagementContext().setCreateMBeanServer(false);
+        brokerService.setPersistent(true);
+        brokerService.setDeleteAllMessagesOnStartup(deleteMessages);
+        brokerService.setAdvisorySupport(false);
+        brokerService.setSchedulerSupport(false);
+        brokerService.setKeepDurableSubsActive(false);
+        brokerService.addConnector("amqp://0.0.0.0:0");
+        brokerService.start();
+
+        connectionUri = new URI("amqp://localhost:" +
+            brokerService.getTransportConnectorByScheme("amqp").getPublishableConnectURI().getPort());
+
+        clientId = name.getMethodName() + "-ClientId";
+        subscriptionName = name.getMethodName() + "-Subscription";
+        topicName = name.getMethodName();
     }
 }
